@@ -82,28 +82,33 @@ $(document).ready(function ($) {
   });
 
   jQuery(".filters").on("click", function () {
-    jQuery("#menu-dish").removeClass("bydefault_show");
+    jQuery("#menu-dish").removeClass("bydefault_show search-mode");
   });
-  $(function () {
-    var filterList = {
-      init: function () {
-        $("#menu-dish").mixItUp({
-          selectors: {
-            target: ".dish-box-wp",
-            filter: ".filter",
-          },
-          animation: {
-            effects: "fade",
-            easing: "ease-in-out",
-          },
-          load: {
-            filter: ".all, .breakfast, .lunch, .dinner, .beverages, .desserts",
-          },
-        });
-      },
-    };
-    filterList.init();
-  });
+
+  // Only initialize mixItUp when NOT in search mode
+  var isSearchMode = !jQuery("#menu-dish").hasClass("bydefault_show");
+  if (!isSearchMode) {
+    $(function () {
+      var filterList = {
+        init: function () {
+          $("#menu-dish").mixItUp({
+            selectors: {
+              target: ".dish-box-wp",
+              filter: ".filter",
+            },
+            animation: {
+              effects: "fade",
+              easing: "ease-in-out",
+            },
+            load: {
+              filter: ".all, .breakfast, .lunch, .dinner, .beverages, .desserts",
+            },
+          });
+        },
+      };
+      filterList.init();
+    });
+  }
 
   jQuery(".menu-toggle").click(function () {
     jQuery(".main-navigation").toggleClass("toggled");
@@ -130,7 +135,10 @@ $(document).ready(function ($) {
   }
 
   var scene = $(".js-parallax-scene").get(0);
-  var parallaxInstance = new Parallax(scene);
+  if (scene) {
+    var parallaxInstance = new Parallax(scene);
+  }
+
 });
 
 jQuery(window).on("load", function () {

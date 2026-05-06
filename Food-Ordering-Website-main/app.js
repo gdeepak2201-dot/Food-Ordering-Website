@@ -37,6 +37,7 @@ app.post("/signup", signUpUser);
 app.get("/signin", renderSignInPage);
 app.post("/signin", signInUser);
 app.get("/homepage", renderHomePage);
+app.get("/search", searchFood);
 app.get("/cart", renderCart);
 app.post("/cart", updateCart);
 app.post("/checkout", checkout);
@@ -126,9 +127,41 @@ function renderHomePage(req, res) {
               username: userName,
               userid: userId,
               items: results,
+              searchQuery: "",
             });
           }
         });
+      } else {
+        res.render("signin");
+      }
+    }
+  );
+}
+
+// Search Food
+function searchFood(req, res) {
+  const userId = req.cookies.cookuid;
+  const userName = req.cookies.cookuname;
+  const query = req.query.q || "";
+  connection.query(
+    "SELECT user_id, user_name FROM users WHERE user_id = ? AND user_name = ?",
+    [userId, userName],
+    function (error, results) {
+      if (!error && results.length) {
+        connection.query(
+          "SELECT * FROM menu WHERE item_name LIKE ?",
+          ["%" + query + "%"],
+          function (error, results) {
+            if (!error) {
+              res.render("homepage", {
+                username: userName,
+                userid: userId,
+                items: results,
+                searchQuery: query,
+              });
+            }
+          }
+        );
       } else {
         res.render("signin");
       }
@@ -160,13 +193,17 @@ function renderCart(req, res) {
 
 // Update Cart
 function updateCart(req, res) {
-  const cartItems = req.body.cart;
+  let cartItems = req.body.cart;
+  if (!cartItems) cartItems = [];
+  if (!Array.isArray(cartItems)) cartItems = [cartItems];
+
   const uniqueItems = [...new Set(cartItems)];
 
   // Function to fetch details of items in the cart
   getItemDetails(uniqueItems, uniqueItems.length);
 
   // Update cart logic if necessary
+  res.redirect("/cart");
 }
 
 // Function to fetch details of items in the cart
@@ -201,6 +238,10 @@ function checkout(req, res) {
         const userid = userId;
         const currDate = new Date();
 
+        if (!itemid) {
+          return res.redirect("/cart");
+        }
+
         if (
           Array.isArray(itemid) &&
           Array.isArray(quantity) &&
@@ -221,7 +262,6 @@ function checkout(req, res) {
                 function (error, results, fields) {
                   if (error) {
                     console.log(error);
-                    res.sendStatus(500);
                   }
                 }
               );
@@ -242,7 +282,6 @@ function checkout(req, res) {
               function (error, results, fields) {
                 if (error) {
                   console.log(error);
-                  res.sendStatus(500);
                 }
               }
             );
@@ -422,7 +461,7 @@ function renderAdminHomepage(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
   connection.query(
-    "SELECT admin_id, admin_name FROM admin WHERE admin_email = ? and admin_name = ?",
+    "SELECT admin_id, admin_name FROM admin WHERE admin_id = ? and admin_name = ?",
     [userId, userName],
     function (error, results) {
       if (!error && results.length) {
@@ -495,7 +534,7 @@ function addFood(req, res) {
     FoodPrice,
     FoodRating,
   } = req.body;
-  if (!req.files) {
+  if (!req.files || !req.files.FoodImg) {
     return res.status(400).send("Image was not uploaded");
   }
   const fimage = req.files.FoodImg;
@@ -559,7 +598,10 @@ function renderViewDispatchOrdersPage(req, res) {
 
 // Dispatch Orders
 function dispatchOrders(req, res) {
-  totalOrder = req.body.order_id_s;
+  let totalOrder = req.body.order_id_s;
+  if (!totalOrder) totalOrder = [];
+  if (!Array.isArray(totalOrder)) totalOrder = [totalOrder];
+  
   const unique = [...new Set(totalOrder)];
   unique.forEach((orderId) => {
     connection.query(
@@ -582,20 +624,11 @@ function dispatchOrders(req, res) {
               if (!error) {
                 connection.query(
                   "DELETE FROM orders WHERE order_id = ?",
-                  [resultsItem[0].order_id],
-                  function (error, results2) {
-                    if (error) {
-                      res.status(500).send("Something went wrong");
-                    }
-                  }
+                  [resultsItem[0].order_id]
                 );
-              } else {
-                res.status(500).send("Something went wrong");
               }
             }
           );
-        } else {
-          res.status(500).send("Something went wrong");
         }
       }
     );
