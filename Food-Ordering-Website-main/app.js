@@ -6,7 +6,7 @@ const cookieParser = require("cookie-parser");
 const ejs = require("ejs");
 const fileUpload = require("express-fileupload");
 const { v4: uuidv4 } = require("uuid");
-const mysql = require("mysql");
+const { Pool } = require("pg");
 
 // Initialize Express App
 const app = express();
@@ -20,13 +20,15 @@ app.use(cookieParser());
 app.use(fileUpload());
 
 // Database Connection
-const connection = mysql.createConnection({
+const pool = new Pool({
   host: "localhost",
-  user: "root",
-  password: "12341234",
+  user: "postgres", // default postgres user
+  password: "your_postgres_password",
   database: "foodorderingwesitedb",
+  port: 5432,
 });
-connection.connect();
+// No need for pool.connect() as Pool handles it automatically for each query
+
 
 /*****************************  User-End Portal ***************************/
 
@@ -75,8 +77,8 @@ function renderSignUpPage(req, res) {
 
 function signUpUser(req, res) {
   const { name, address, email, mobile, password } = req.body;
-  connection.query(
-    "INSERT INTO users (user_name, user_address, user_email, user_password, user_mobileno) VALUES (?, ?, ?, ?, ?)",
+  pool.query(
+    "INSERT INTO users (user_name, user_address, user_email, user_password, user_mobileno) VALUES ($1, $2, $3, $4, $5)",
     [name, address, email, password, mobile],
     function (error, results) {
       if (error) {
@@ -96,14 +98,14 @@ function renderSignInPage(req, res) {
 
 function signInUser(req, res) {
   const { email, password } = req.body;
-  connection.query(
-    "SELECT user_id, user_name, user_email, user_password FROM users WHERE user_email = ?",
+  pool.query(
+    "SELECT user_id, user_name, user_email, user_password FROM users WHERE user_email = $1",
     [email],
     function (error, results) {
-      if (error || !results.length || results[0].user_password !== password) {
+      if (error || !results.rows.length || results.rows[0].user_password !== password) {
         res.render("signin");
       } else {
-        const { user_id, user_name } = results[0];
+        const { user_id, user_name } = results.rows[0];
         res.cookie("cookuid", user_id);
         res.cookie("cookuname", user_name);
         res.redirect("/homepage");
@@ -116,17 +118,17 @@ function signInUser(req, res) {
 function renderHomePage(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
-  connection.query(
-    "SELECT user_id, user_name FROM users WHERE user_id = ? AND user_name = ?",
+  pool.query(
+    "SELECT user_id, user_name FROM users WHERE user_id = $1 AND user_name = $2",
     [userId, userName],
     function (error, results) {
-      if (!error && results.length) {
-        connection.query("SELECT * FROM menu", function (error, results) {
+      if (!error && results.rows.length) {
+        pool.query("SELECT * FROM menu", function (error, resultsMenu) {
           if (!error) {
             res.render("homepage", {
               username: userName,
               userid: userId,
-              items: results,
+              items: resultsMenu.rows,
               searchQuery: "",
             });
           }
@@ -143,20 +145,20 @@ function searchFood(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
   const query = req.query.q || "";
-  connection.query(
-    "SELECT user_id, user_name FROM users WHERE user_id = ? AND user_name = ?",
+  pool.query(
+    "SELECT user_id, user_name FROM users WHERE user_id = $1 AND user_name = $2",
     [userId, userName],
     function (error, results) {
-      if (!error && results.length) {
-        connection.query(
-          "SELECT * FROM menu WHERE item_name LIKE ?",
+      if (!error && results.rows.length) {
+        pool.query(
+          "SELECT * FROM menu WHERE item_name ILIKE $1",
           ["%" + query + "%"],
-          function (error, results) {
+          function (error, resultsMenu) {
             if (!error) {
               res.render("homepage", {
                 username: userName,
                 userid: userId,
-                items: results,
+                items: resultsMenu.rows,
                 searchQuery: query,
               });
             }
@@ -173,11 +175,11 @@ function searchFood(req, res) {
 function renderCart(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
-  connection.query(
-    "SELECT user_id, user_name FROM users WHERE user_id = ? AND user_name = ?",
+  pool.query(
+    "SELECT user_id, user_name FROM users WHERE user_id = $1 AND user_name = $2",
     [userId, userName],
     function (error, results) {
-      if (!error && results.length) {
+      if (!error && results.rows.length) {
         res.render("cart", {
           username: userName,
           userid: userId,
@@ -212,12 +214,12 @@ let citemdetails = [];
 let item_in_cart = 0;
 function getItemDetails(citems, size) {
   citems.forEach((item) => {
-    connection.query(
-      "SELECT * FROM menu WHERE item_id = ?",
+    pool.query(
+      "SELECT * FROM menu WHERE item_id = $1",
       [item],
       function (error, results_item) {
-        if (!error && results_item.length) {
-          citemdetails.push(results_item[0]);
+        if (!error && results_item.rows.length) {
+          citemdetails.push(results_item.rows[0]);
         }
       }
     );
@@ -229,11 +231,11 @@ function getItemDetails(citems, size) {
 function checkout(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
-  connection.query(
-    "SELECT user_id, user_name FROM users WHERE user_id = ? AND user_name = ?",
+  pool.query(
+    "SELECT user_id, user_name FROM users WHERE user_id = $1 AND user_name = $2",
     [userId, userName],
     function (error, results) {
-      if (!error && results.length) {
+      if (!error && results.rows.length) {
         const { itemid, quantity, subprice } = req.body;
         const userid = userId;
         const currDate = new Date();
@@ -249,8 +251,8 @@ function checkout(req, res) {
         ) {
           itemid.forEach((item, index) => {
             if (quantity[index] != 0) {
-              connection.query(
-                "INSERT INTO orders (order_id, user_id, item_id, quantity, price, datetime) VALUES (?, ?, ?, ?, ?, ?)",
+              pool.query(
+                "INSERT INTO orders (order_id, user_id, item_id, quantity, price, datetime) VALUES ($1, $2, $3, $4, $5, $6)",
                 [
                   uuidv4(),
                   userid,
@@ -269,8 +271,8 @@ function checkout(req, res) {
           });
         } else {
           if (quantity != 0) {
-            connection.query(
-              "INSERT INTO orders (order_id, user_id, item_id, quantity, price, datetime) VALUES (?, ?, ?, ?, ?, ?)",
+            pool.query(
+              "INSERT INTO orders (order_id, user_id, item_id, quantity, price, datetime) VALUES ($1, $2, $3, $4, $5, $6)",
               [
                 uuidv4(),
                 userid,
@@ -304,11 +306,11 @@ function checkout(req, res) {
 function renderConfirmationPage(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
-  connection.query(
-    "SELECT user_id, user_name FROM users WHERE user_id = ? AND user_name = ?",
+  pool.query(
+    "SELECT user_id, user_name FROM users WHERE user_id = $1 AND user_name = $2",
     [userId, userName],
     function (error, results) {
-      if (!error && results.length) {
+      if (!error && results.rows.length) {
         res.render("confirmation", { username: userName, userid: userId });
       } else {
         res.render("signin");
@@ -321,19 +323,19 @@ function renderConfirmationPage(req, res) {
 function renderMyOrdersPage(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
-  connection.query(
-    "SELECT user_id, user_name, user_address, user_email, user_mobileno FROM users WHERE user_id = ? AND user_name = ?",
+  pool.query(
+    "SELECT user_id, user_name, user_address, user_email, user_mobileno FROM users WHERE user_id = $1 AND user_name = $2",
     [userId, userName],
     function (error, resultUser) {
-      if (!error && resultUser.length) {
-        connection.query(
-          "SELECT order_dispatch.order_id, order_dispatch.user_id, order_dispatch.quantity, order_dispatch.price, order_dispatch.datetime, menu.item_id, menu.item_name, menu.item_img FROM order_dispatch, menu WHERE order_dispatch.user_id = ? AND menu.item_id = order_dispatch.item_id ORDER BY order_dispatch.datetime DESC",
+      if (!error && resultUser.rows.length) {
+        pool.query(
+          "SELECT order_dispatch.order_id, order_dispatch.user_id, order_dispatch.quantity, order_dispatch.price, order_dispatch.datetime, menu.item_id, menu.item_name, menu.item_img FROM order_dispatch, menu WHERE order_dispatch.user_id = $1 AND menu.item_id = order_dispatch.item_id ORDER BY order_dispatch.datetime DESC",
           [userId],
           function (error, results) {
             if (!error) {
               res.render("myorders", {
-                userDetails: resultUser,
-                items: results,
+                userDetails: resultUser.rows,
+                items: results.rows,
                 item_count: item_in_cart,
               });
             }
@@ -350,11 +352,11 @@ function renderMyOrdersPage(req, res) {
 function renderSettingsPage(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
-  connection.query(
-    "SELECT user_id, user_name FROM users WHERE user_id = ? AND user_name = ?",
+  pool.query(
+    "SELECT user_id, user_name FROM users WHERE user_id = $1 AND user_name = $2",
     [userId, userName],
     function (error, results) {
-      if (!error && results.length) {
+      if (!error && results.rows.length) {
         res.render("settings", {
           username: userName,
           userid: userId,
@@ -369,15 +371,15 @@ function updateAddress(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
   const address = req.body.address;
-  connection.query(
-    "SELECT user_id, user_name FROM users WHERE user_id = ? AND user_name = ?",
+  pool.query(
+    "SELECT user_id, user_name FROM users WHERE user_id = $1 AND user_name = $2",
     [userId, userName],
     function (error, results) {
-      if (!error && results.length) {
-        connection.query(
-          "UPDATE users SET user_address = ? WHERE user_id = ?",
+      if (!error && results.rows.length) {
+        pool.query(
+          "UPDATE users SET user_address = $1 WHERE user_id = $2",
           [address, userId],
-          function (error, results) {
+          function (error, resultsUpdate) {
             if (!error) {
               res.render("settings", {
                 username: userName,
@@ -399,15 +401,15 @@ function updateContact(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
   const mobileno = req.body.mobileno;
-  connection.query(
-    "SELECT user_id, user_name FROM users WHERE user_id = ? AND user_name = ?",
+  pool.query(
+    "SELECT user_id, user_name FROM users WHERE user_id = $1 AND user_name = $2",
     [userId, userName],
     function (error, results) {
-      if (!error && results.length) {
-        connection.query(
-          "UPDATE users SET user_mobileno = ? WHERE user_id = ?",
+      if (!error && results.rows.length) {
+        pool.query(
+          "UPDATE users SET user_mobileno = $1 WHERE user_id = $2",
           [mobileno, userId],
-          function (error, results) {
+          function (error, resultsUpdate) {
             if (!error) {
               res.render("settings", {
                 username: userName,
@@ -430,15 +432,15 @@ function updatePassword(req, res) {
   const userName = req.cookies.cookuname;
   const oldPassword = req.body.old_password;
   const newPassword = req.body.new_password;
-  connection.query(
-    "SELECT user_id, user_name FROM users WHERE user_id = ? AND user_name = ? AND user_password = ?",
+  pool.query(
+    "SELECT user_id, user_name FROM users WHERE user_id = $1 AND user_name = $2 AND user_password = $3",
     [userId, userName, oldPassword],
     function (error, results) {
-      if (!error && results.length) {
-        connection.query(
-          "UPDATE users SET user_password = ? WHERE user_id = ?",
+      if (!error && results.rows.length) {
+        pool.query(
+          "UPDATE users SET user_password = $1 WHERE user_id = $2",
           [newPassword, userId],
-          function (error, results) {
+          function (error, resultsUpdate) {
             if (!error) {
               res.render("settings", {
                 username: userName,
@@ -460,15 +462,15 @@ function updatePassword(req, res) {
 function renderAdminHomepage(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
-  connection.query(
-    "SELECT admin_id, admin_name FROM admin WHERE admin_id = ? and admin_name = ?",
+  pool.query(
+    "SELECT admin_id, admin_name FROM admin WHERE admin_id = $1 and admin_name = $2",
     [userId, userName],
     function (error, results) {
-      if (!error && results.length) {
+      if (!error && results.rows.length) {
         res.render("adminHomepage", {
           username: userName,
           userid: userId,
-          items: results,
+          items: results.rows,
         });
       } else {
         res.render("admin_signin");
@@ -486,14 +488,14 @@ function renderAdminSignInPage(req, res) {
 function adminSignIn(req, res) {
   const email = req.body.email;
   const password = req.body.password;
-  connection.query(
-    "SELECT admin_id, admin_name FROM admin WHERE admin_email = ? AND admin_password = ?",
+  pool.query(
+    "SELECT admin_id, admin_name FROM admin WHERE admin_email = $1 AND admin_password = $2",
     [email, password],
     function (error, results) {
-      if (error || !results.length) {
+      if (error || !results.rows.length) {
         res.render("admin_signin");
       } else {
-        const { admin_id, admin_name } = results[0];
+        const { admin_id, admin_name } = results.rows[0];
         res.cookie("cookuid", admin_id);
         res.cookie("cookuname", admin_name);
         res.render("adminHomepage");
@@ -506,15 +508,15 @@ function adminSignIn(req, res) {
 function renderAddFoodPage(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
-  connection.query(
-    "SELECT admin_id, admin_name FROM admin WHERE admin_id = ? and admin_name = ?",
+  pool.query(
+    "SELECT admin_id, admin_name FROM admin WHERE admin_id = $1 and admin_name = $2",
     [userId, userName],
     function (error, results) {
-      if (!error && results.length) {
+      if (!error && results.rows.length) {
         res.render("admin_addFood", {
           username: userName,
           userid: userId,
-          items: results,
+          items: results.rows,
         });
       } else {
         res.render("admin_signin");
@@ -544,8 +546,8 @@ function addFood(req, res) {
       if (err) {
         return res.status(500).send(err);
       }
-      connection.query(
-        "INSERT INTO menu (item_name, item_type, item_category, item_serving, item_calories, item_price, item_rating, item_img) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      pool.query(
+        "INSERT INTO menu (item_name, item_type, item_category, item_serving, item_calories, item_price, item_rating, item_img) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         [
           FoodName,
           FoodType,
@@ -574,18 +576,18 @@ function addFood(req, res) {
 function renderViewDispatchOrdersPage(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
-  connection.query(
-    "SELECT admin_id, admin_name FROM admin WHERE admin_id = ? and admin_name = ?",
+  pool.query(
+    "SELECT admin_id, admin_name FROM admin WHERE admin_id = $1 and admin_name = $2",
     [userId, userName],
     function (error, results) {
-      if (!error && results.length) {
-        connection.query(
+      if (!error && results.rows.length) {
+        pool.query(
           "SELECT * FROM orders ORDER BY datetime",
           function (error, results2) {
             res.render("admin_view_dispatch_orders", {
               username: userName,
               userid: userId,
-              orders: results2,
+              orders: results2.rows,
             });
           }
         );
@@ -604,27 +606,27 @@ function dispatchOrders(req, res) {
   
   const unique = [...new Set(totalOrder)];
   unique.forEach((orderId) => {
-    connection.query(
-      "SELECT * FROM orders WHERE order_id = ?",
+    pool.query(
+      "SELECT * FROM orders WHERE order_id = $1",
       [orderId],
       function (error, resultsItem) {
-        if (!error && resultsItem.length) {
+        if (!error && resultsItem.rows.length) {
           const currDate = new Date();
-          connection.query(
-            "INSERT INTO order_dispatch (order_id, user_id, item_id, quantity, price, datetime) VALUES (?, ?, ?, ?, ?, ?)",
+          pool.query(
+            "INSERT INTO order_dispatch (order_id, user_id, item_id, quantity, price, datetime) VALUES ($1, $2, $3, $4, $5, $6)",
             [
-              resultsItem[0].order_id,
-              resultsItem[0].user_id,
-              resultsItem[0].item_id,
-              resultsItem[0].quantity,
-              resultsItem[0].price,
+              resultsItem.rows[0].order_id,
+              resultsItem.rows[0].user_id,
+              resultsItem.rows[0].item_id,
+              resultsItem.rows[0].quantity,
+              resultsItem.rows[0].price,
               currDate,
             ],
             function (error, results) {
               if (!error) {
-                connection.query(
-                  "DELETE FROM orders WHERE order_id = ?",
-                  [resultsItem[0].order_id]
+                pool.query(
+                  "DELETE FROM orders WHERE order_id = $1",
+                  [resultsItem.rows[0].order_id]
                 );
               }
             }
@@ -633,12 +635,12 @@ function dispatchOrders(req, res) {
       }
     );
   });
-  connection.query(
+  pool.query(
     "SELECT * FROM orders ORDER BY datetime",
     function (error, results2_dis) {
       res.render("admin_view_dispatch_orders", {
         username: req.cookies.cookuname,
-        orders: results2_dis,
+        orders: results2_dis.rows,
       });
     }
   );
@@ -649,16 +651,16 @@ function dispatchOrders(req, res) {
 function renderChangePricePage(req, res) {
   const userId = req.cookies.cookuid;
   const userName = req.cookies.cookuname;
-  connection.query(
-    "SELECT admin_id, admin_name FROM admin WHERE admin_id = ? and admin_name = ?",
+  pool.query(
+    "SELECT admin_id, admin_name FROM admin WHERE admin_id = $1 and admin_name = $2",
     [userId, userName],
     function (error, results) {
-      if (!error && results.length) {
-        connection.query("SELECT * FROM menu", function (error, results) {
+      if (!error && results.rows.length) {
+        pool.query("SELECT * FROM menu", function (error, resultsMenu) {
           if (!error) {
             res.render("admin_change_price", {
               username: userName,
-              items: results,
+              items: resultsMenu.rows,
             });
           }
         });
@@ -673,13 +675,13 @@ function renderChangePricePage(req, res) {
 function changePrice(req, res) {
   const item_name = req.body.item_name;
   const new_food_price = req.body.NewFoodPrice;
-  connection.query(
-    "SELECT item_name FROM menu WHERE item_name = ?",
+  pool.query(
+    "SELECT item_name FROM menu WHERE item_name = $1",
     [item_name],
     function (error, results1) {
-      if (!error && results1.length) {
-        connection.query(
-          "UPDATE menu SET item_price = ? WHERE item_name = ?",
+      if (!error && results1.rows.length) {
+        pool.query(
+          "UPDATE menu SET item_price = $1 WHERE item_name = $2",
           [new_food_price, item_name],
           function (error, results2) {
             if (!error) {
@@ -698,7 +700,8 @@ function changePrice(req, res) {
 
 // Logout
 function logout(req, res) {
-  res.clearCookie();
+  res.clearCookie("cookuid");
+  res.clearCookie("cookuname");
   return res.redirect("/signin");
 }
 

@@ -4,7 +4,7 @@ function myFunction() {
 
 // Close the dropdown if the user clicks outside of it
 window.onclick = function (event) {
-  if (!event.target.matches(".header-username")) {
+  if (!event.target.closest(".header-username")) {
     var dropdowns = document.getElementsByClassName("dropdown-content");
     var i;
     for (i = 0; i < dropdowns.length; i++) {
@@ -126,11 +126,11 @@ $(document).ready(function ($) {
     start: "30px top",
     end: "bottom bottom",
 
-    onEnter: () => myFunction(),
-    onLeaveBack: () => myFunction(),
+    onEnter: () => toggleStickyHeader(),
+    onLeaveBack: () => toggleStickyHeader(),
   });
 
-  function myFunction() {
+  function toggleStickyHeader() {
     elementFirst.classList.toggle("sticky_head");
   }
 
