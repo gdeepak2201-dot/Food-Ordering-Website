@@ -23,7 +23,7 @@ app.use(fileUpload());
 const pool = new Pool({
   host: "localhost",
   user: "postgres", // default postgres user
-  password: "your_postgres_password",
+  password: "deep",
   database: "foodorderingwesitedb",
   port: 5432,
 });
