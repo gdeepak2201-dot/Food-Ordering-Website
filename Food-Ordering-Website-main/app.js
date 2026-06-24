@@ -24,10 +24,24 @@ const pool = new Pool({
   host: "localhost",
   user: "postgres", // default postgres user
   password: "deep",
-  database: "foodorderingwesitedb",
+  database: "foodorderingwebsitedb",
   port: 5432,
 });
-// No need for pool.connect() as Pool handles it automatically for each query
+
+// Test database connection
+pool.query("SELECT NOW()", (err, res) => {
+  if (err) {
+    console.error("Database connection error:", err.stack);
+  } else {
+    console.log("Database connected successfully at:", res.rows[0].now);
+  }
+});
+
+// Handle pool errors
+pool.on("error", (err, client) => {
+  console.error("Unexpected error on idle client", err);
+  process.exit(-1);
+});
 
 
 /*****************************  User-End Portal ***************************/
@@ -76,15 +90,17 @@ function renderSignUpPage(req, res) {
 }
 
 function signUpUser(req, res) {
+  console.log("Signup request received for email:", req.body.email);
   const { name, address, email, mobile, password } = req.body;
   pool.query(
     "INSERT INTO users (user_name, user_address, user_email, user_password, user_mobileno) VALUES ($1, $2, $3, $4, $5)",
     [name, address, email, password, mobile],
     function (error, results) {
       if (error) {
-        console.log(error);
+        console.log("Signup Error:", error);
+        res.status(500).send("Registration failed. Please try again later.");
       } else {
-        res.render("signin");
+        res.redirect("/signin");
       }
     }
   );
@@ -329,7 +345,7 @@ function renderMyOrdersPage(req, res) {
     function (error, resultUser) {
       if (!error && resultUser.rows.length) {
         pool.query(
-          "SELECT order_dispatch.order_id, order_dispatch.user_id, order_dispatch.quantity, order_dispatch.price, order_dispatch.datetime, menu.item_id, menu.item_name, menu.item_img FROM order_dispatch, menu WHERE order_dispatch.user_id = $1 AND menu.item_id = order_dispatch.item_id ORDER BY order_dispatch.datetime DESC",
+          "SELECT o.order_id, o.user_id, o.quantity, o.price, o.datetime, menu.item_id, menu.item_name, menu.item_img FROM (SELECT * FROM orders UNION ALL SELECT * FROM order_dispatch) o JOIN menu ON o.item_id = menu.item_id WHERE o.user_id = $1 ORDER BY o.datetime DESC",
           [userId],
           function (error, results) {
             if (!error) {
@@ -603,7 +619,7 @@ function dispatchOrders(req, res) {
   let totalOrder = req.body.order_id_s;
   if (!totalOrder) totalOrder = [];
   if (!Array.isArray(totalOrder)) totalOrder = [totalOrder];
-  
+
   const unique = [...new Set(totalOrder)];
   unique.forEach((orderId) => {
     pool.query(
